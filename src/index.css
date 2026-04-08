@@ -1,0 +1,117 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-gain: #22c55e;
+  --color-loss: #ef4444;
+  --color-neutral: #94a3b8;
+  --color-accent: #3b82f6;
+  --color-surface-900: #0a0e1a;
+  --color-surface-800: #0f172a;
+  --color-surface-700: #1e293b;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* TradingView widget overrides */
+.tradingview-widget-container {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* Ticker scrolling animation */
+@keyframes ticker-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.ticker-scroll {
+  animation: ticker-scroll 30s linear infinite;
+}
+.ticker-scroll:hover {
+  animation-play-state: paused;
+}
+
+/* Card hover effect */
+.card-hover {
+  @apply transition-all duration-200;
+}
+.card-hover:hover {
+  @apply ring-1 ring-white/10 shadow-lg shadow-black/20;
+  transform: translateY(-1px);
+}
+
+/* Grid layout overrides */
+.react-grid-layout {
+  position: relative;
+}
+.react-grid-item {
+  transition: all 200ms ease;
+  transition-property: left, top, width, height;
+}
+.react-grid-item.react-draggable-dragging {
+  z-index: 100;
+  opacity: 0.9;
+}
+.react-grid-placeholder {
+  background: #3b82f6 !important;
+  opacity: 0.15 !important;
+  border-radius: 12px !important;
+}
+
+/* Loading skeleton */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 6px;
+}
+
+/* Sentiment badges */
+.badge-bullish {
+  @apply bg-gain/15 text-gain border border-gain/30;
+}
+.badge-bearish {
+  @apply bg-loss/15 text-loss border border-loss/30;
+}
+.badge-neutral {
+  @apply bg-neutral/15 text-neutral border border-neutral/30;
+}
+
+/* react-grid-layout CSS */
+.react-grid-item > .react-resizable-handle {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  bottom: 0;
+  right: 0;
+  cursor: se-resize;
+}
+.react-grid-item > .react-resizable-handle::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 5px;
+  height: 5px;
+  border-right: 2px solid rgba(255,255,255,0.2);
+  border-bottom: 2px solid rgba(255,255,255,0.2);
+}
