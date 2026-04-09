@@ -29,11 +29,24 @@ function setCache(key: string, data: unknown) {
 // ── FMP (Financial Modeling Prep) fetcher ──
 
 const FMP_BASE = 'https://financialmodelingprep.com/api/v3';
-const FMP_KEY = 'demo'; // Replace with your key
+
+function getFmpKey(): string {
+  // Priority: localStorage > env var > demo
+  try {
+    const stored = localStorage.getItem('dgmf-fmp-api-key');
+    if (stored && stored.trim()) return stored.trim();
+  } catch { /* SSR safety */ }
+  return import.meta.env.VITE_FMP_API_KEY || 'demo';
+}
+
+export function isUsingDemoKey(): boolean {
+  return getFmpKey() === 'demo';
+}
 
 async function fmpFetch<T>(path: string): Promise<T> {
+  const key = getFmpKey();
   const sep = path.includes('?') ? '&' : '?';
-  const url = `${FMP_BASE}${path}${sep}apikey=${FMP_KEY}`;
+  const url = `${FMP_BASE}${path}${sep}apikey=${key}`;
   const cached = getCached<T>(url, 60_000);
   if (cached) return cached;
 
@@ -129,12 +142,12 @@ export async function fetchTickerData(symbols: string[]): Promise<TickerItem[]> 
 export async function fetchMarketSummary(): Promise<MarketSummary> {
   // In production, this would call an AI API or a pre-computed summary endpoint
   return {
-    headline: 'Markets Rally on Geopolitical Breakthrough',
-    body: `Global markets surged broadly as investors reacted to significant developments in international trade negotiations and geopolitical de-escalation. 
-    
-The S&P 500 and Nasdaq posted strong gains, led by technology and industrials sectors. Energy prices saw sharp moves as supply dynamics shifted, while safe-haven assets adjusted to the improved risk sentiment.
+    headline: 'U.S.-Iran Ceasefire Sparks Broad Market Relief Rally',
+    body: `President Trump announced a two-week ceasefire with Iran just 90 minutes before his self-imposed deadline, sending Wall Street surging with the Dow Jones up ~1,200 points (2.85%), the S&P 500 gaining 2.51%, and the Nasdaq climbing 2.80%.
 
-Key drivers include monetary policy expectations, corporate earnings momentum, and shifting commodity supply patterns. Volatility indices retreated from recent highs as market participants recalibrated risk assessments.`,
+The deal, brokered with Pakistan's help, is contingent on Iran reopening the Strait of Hormuz, easing fears of a prolonged energy shock. Crude oil posted one of its worst single-day drops — WTI fell ~16% to around $95, Brent dropped ~14% to just above $94.
+
+Bitcoin crossed $71,000 as risk-on sentiment surged. The U.S. dollar weakened sharply as safe-haven demand evaporated. Gold rallied initially but then stalled as inflation fears eased with the oil drop.`,
     sentiment: 'Bullish',
     updatedAt: new Date().toISOString(),
     sources: ['Reuters', 'Bloomberg', 'CNBC', 'FT'],
@@ -360,29 +373,30 @@ function generateSparkline(price: number, changePct: number): number[] {
 // ── Mock data for demo / fallback ──
 
 function getMockTicker(): TickerItem[] {
+  // Prices as of April 8-9, 2026 — US-Iran ceasefire rally, oil crash
   return [
-    // US
-    { symbol: 'SPY', name: 'S&P 500', price: 5823.75, change: 142.50, changePercent: 2.51 },
-    { symbol: 'QQQ', name: 'NASDAQ 100', price: 502.38, change: 14.12, changePercent: 2.89 },
-    { symbol: 'DIA', name: 'Dow Jones', price: 421.44, change: 11.67, changePercent: 2.85 },
+    // US — SPY/QQQ/DIA are ETF prices, not index points
+    { symbol: 'SPY', name: 'S&P 500', price: 565.42, change: 13.82, changePercent: 2.51 },
+    { symbol: 'QQQ', name: 'NASDAQ 100', price: 487.65, change: 13.70, changePercent: 2.89 },
+    { symbol: 'DIA', name: 'Dow Jones', price: 424.18, change: 11.74, changePercent: 2.85 },
     { symbol: 'VIX', name: 'VIX', price: 21.04, change: -4.74, changePercent: -18.39 },
-    { symbol: 'EURUSD', name: 'EUR/USD', price: 1.0842, change: -0.0032, changePercent: -0.30 },
-    { symbol: 'GBPUSD', name: 'GBP/USD', price: 1.2735, change: 0.0018, changePercent: 0.14 },
-    { symbol: 'USDJPY', name: 'USD/JPY', price: 151.42, change: 0.38, changePercent: 0.25 },
-    { symbol: 'USDCNY', name: 'USD/CNY', price: 7.2480, change: -0.012, changePercent: -0.17 },
-    { symbol: 'GLD', name: 'Gold', price: 302.15, change: 2.40, changePercent: 0.80 },
-    { symbol: 'USO', name: 'Crude Oil', price: 72.40, change: -8.92, changePercent: -10.97 },
-    { symbol: 'TLT', name: 'US 20Y Bond', price: 92.35, change: 0.67, changePercent: 0.73 },
+    { symbol: 'EURUSD', name: 'EUR/USD', price: 1.0965, change: 0.0048, changePercent: 0.44 },
+    { symbol: 'GBPUSD', name: 'GBP/USD', price: 1.2892, change: 0.0035, changePercent: 0.27 },
+    { symbol: 'USDJPY', name: 'USD/JPY', price: 146.85, change: -1.32, changePercent: -0.89 },
+    { symbol: 'USDCNY', name: 'USD/CNY', price: 7.2715, change: -0.018, changePercent: -0.25 },
+    { symbol: 'GLD', name: 'Gold', price: 296.40, change: -2.85, changePercent: -0.95 },
+    { symbol: 'USO', name: 'Crude Oil', price: 66.82, change: -10.45, changePercent: -13.53 },
+    { symbol: 'TLT', name: 'US 20Y Bond', price: 89.52, change: 0.82, changePercent: 0.92 },
     // EU
-    { symbol: 'EZU', name: 'Euro Stoxx', price: 52.80, change: 1.12, changePercent: 2.17 },
-    { symbol: 'EWG', name: 'DAX (Germany)', price: 34.65, change: 0.89, changePercent: 2.64 },
-    { symbol: 'EWQ', name: 'CAC 40 (France)', price: 38.20, change: 0.72, changePercent: 1.92 },
-    { symbol: 'EWU', name: 'FTSE (UK)', price: 36.45, change: 0.54, changePercent: 1.50 },
+    { symbol: 'EZU', name: 'Euro Stoxx', price: 54.38, change: 1.24, changePercent: 2.33 },
+    { symbol: 'EWG', name: 'DAX (Germany)', price: 35.92, change: 0.97, changePercent: 2.78 },
+    { symbol: 'EWQ', name: 'CAC 40 (France)', price: 39.85, change: 0.78, changePercent: 2.00 },
+    { symbol: 'EWU', name: 'FTSE (UK)', price: 37.62, change: 0.58, changePercent: 1.57 },
     // ASIA
-    { symbol: 'EWJ', name: 'Nikkei (Japan)', price: 68.90, change: 1.34, changePercent: 1.98 },
-    { symbol: 'FXI', name: 'China Large Cap', price: 28.45, change: 0.42, changePercent: 1.50 },
-    { symbol: 'EWY', name: 'KOSPI (Korea)', price: 62.30, change: 1.85, changePercent: 3.06 },
-    { symbol: 'INDA', name: 'Nifty (India)', price: 51.20, change: 0.68, changePercent: 1.35 },
+    { symbol: 'EWJ', name: 'Nikkei (Japan)', price: 71.25, change: 1.52, changePercent: 2.18 },
+    { symbol: 'FXI', name: 'China Large Cap', price: 29.84, change: 0.51, changePercent: 1.74 },
+    { symbol: 'EWY', name: 'KOSPI (Korea)', price: 64.78, change: 1.90, changePercent: 3.02 },
+    { symbol: 'INDA', name: 'Nifty (India)', price: 52.45, change: 0.72, changePercent: 1.39 },
   ];
 }
 
@@ -397,54 +411,61 @@ function getMockNews(): NewsItem[] {
 }
 
 function getMockHeatmap(): HeatmapItem[] {
+  // Based on Perplexity Finance April 8-9, 2026 — ceasefire rally
   const stocks = [
-    { symbol: 'AAPL', name: 'Apple', sector: 'Technology', marketCap: 3200e9, changePercent: 2.1 },
-    { symbol: 'MSFT', name: 'Microsoft', sector: 'Technology', marketCap: 3100e9, changePercent: 0.6 },
-    { symbol: 'NVDA', name: 'NVIDIA', sector: 'Technology', marketCap: 2800e9, changePercent: 2.2 },
-    { symbol: 'GOOGL', name: 'Alphabet', sector: 'Technology', marketCap: 2100e9, changePercent: 3.9 },
-    { symbol: 'AMZN', name: 'Amazon', sector: 'Consumer Cyclical', marketCap: 2000e9, changePercent: 3.5 },
-    { symbol: 'META', name: 'Meta', sector: 'Technology', marketCap: 1500e9, changePercent: 6.5 },
-    { symbol: 'TSLA', name: 'Tesla', sector: 'Consumer Cyclical', marketCap: 700e9, changePercent: -1.0 },
-    { symbol: 'BRK-B', name: 'Berkshire', sector: 'Financials', marketCap: 900e9, changePercent: 0.4 },
-    { symbol: 'JPM', name: 'JPMorgan', sector: 'Financials', marketCap: 600e9, changePercent: 3.6 },
-    { symbol: 'V', name: 'Visa', sector: 'Financials', marketCap: 550e9, changePercent: 1.8 },
-    { symbol: 'JNJ', name: 'Johnson & Johnson', sector: 'Healthcare', marketCap: 400e9, changePercent: 0.9 },
-    { symbol: 'UNH', name: 'UnitedHealth', sector: 'Healthcare', marketCap: 450e9, changePercent: 1.2 },
-    { symbol: 'XOM', name: 'Exxon Mobil', sector: 'Energy', marketCap: 500e9, changePercent: -2.1 },
-    { symbol: 'HD', name: 'Home Depot', sector: 'Consumer Cyclical', marketCap: 335e9, changePercent: 5.5 },
-    { symbol: 'PG', name: 'Procter & Gamble', sector: 'Consumer Defensive', marketCap: 380e9, changePercent: 0.7 },
-    { symbol: 'MA', name: 'Mastercard', sector: 'Financials', marketCap: 400e9, changePercent: 1.8 },
-    { symbol: 'AVGO', name: 'Broadcom', sector: 'Technology', marketCap: 600e9, changePercent: 5.0 },
-    { symbol: 'LLY', name: 'Eli Lilly', sector: 'Healthcare', marketCap: 700e9, changePercent: 1.5 },
-    { symbol: 'COST', name: 'Costco', sector: 'Consumer Defensive', marketCap: 300e9, changePercent: 2.3 },
-    { symbol: 'NFLX', name: 'Netflix', sector: 'Technology', marketCap: 280e9, changePercent: 0.6 },
-    { symbol: 'AMD', name: 'AMD', sector: 'Technology', marketCap: 220e9, changePercent: 4.6 },
-    { symbol: 'CRM', name: 'Salesforce', sector: 'Technology', marketCap: 260e9, changePercent: 1.4 },
-    { symbol: 'INTC', name: 'Intel', sector: 'Technology', marketCap: 100e9, changePercent: 11.4 },
-    { symbol: 'WMT', name: 'Walmart', sector: 'Consumer Defensive', marketCap: 500e9, changePercent: 1.1 },
-    { symbol: 'BAC', name: 'Bank of America', sector: 'Financials', marketCap: 300e9, changePercent: 3.2 },
-    { symbol: 'DIS', name: 'Disney', sector: 'Communication', marketCap: 200e9, changePercent: 2.8 },
-    { symbol: 'CSCO', name: 'Cisco', sector: 'Technology', marketCap: 200e9, changePercent: 3.7 },
-    { symbol: 'PLTR', name: 'Palantir', sector: 'Technology', marketCap: 150e9, changePercent: -6.2 },
-    { symbol: 'UBER', name: 'Uber', sector: 'Technology', marketCap: 160e9, changePercent: 2.1 },
-    { symbol: 'GS', name: 'Goldman Sachs', sector: 'Financials', marketCap: 180e9, changePercent: 3.0 },
+    { symbol: 'AAPL', name: 'Apple', sector: 'Technology', marketCap: 3450e9, changePercent: 2.13 },
+    { symbol: 'MSFT', name: 'Microsoft', sector: 'Technology', marketCap: 3250e9, changePercent: 0.55 },
+    { symbol: 'NVDA', name: 'NVIDIA', sector: 'Technology', marketCap: 2900e9, changePercent: 2.23 },
+    { symbol: 'GOOGL', name: 'Alphabet', sector: 'Technology', marketCap: 2200e9, changePercent: 3.88 },
+    { symbol: 'AMZN', name: 'Amazon', sector: 'Consumer Cyclical', marketCap: 2100e9, changePercent: 3.50 },
+    { symbol: 'META', name: 'Meta', sector: 'Technology', marketCap: 1580e9, changePercent: 6.50 },
+    { symbol: 'TSLA', name: 'Tesla', sector: 'Consumer Cyclical', marketCap: 730e9, changePercent: -0.98 },
+    { symbol: 'BRK-B', name: 'Berkshire', sector: 'Financials', marketCap: 950e9, changePercent: 0.38 },
+    { symbol: 'JPM', name: 'JPMorgan', sector: 'Financials', marketCap: 650e9, changePercent: 3.55 },
+    { symbol: 'V', name: 'Visa', sector: 'Financials', marketCap: 570e9, changePercent: 2.12 },
+    { symbol: 'JNJ', name: 'Johnson & Johnson', sector: 'Healthcare', marketCap: 420e9, changePercent: 0.85 },
+    { symbol: 'UNH', name: 'UnitedHealth', sector: 'Healthcare', marketCap: 480e9, changePercent: 1.32 },
+    { symbol: 'XOM', name: 'Exxon Mobil', sector: 'Energy', marketCap: 480e9, changePercent: -4.85 },
+    { symbol: 'CVX', name: 'Chevron', sector: 'Energy', marketCap: 290e9, changePercent: -3.92 },
+    { symbol: 'HD', name: 'Home Depot', sector: 'Consumer Cyclical', marketCap: 335e9, changePercent: 5.46 },
+    { symbol: 'PG', name: 'Procter & Gamble', sector: 'Consumer Defensive', marketCap: 395e9, changePercent: 0.72 },
+    { symbol: 'MA', name: 'Mastercard', sector: 'Financials', marketCap: 415e9, changePercent: 1.77 },
+    { symbol: 'AVGO', name: 'Broadcom', sector: 'Technology', marketCap: 640e9, changePercent: 4.99 },
+    { symbol: 'LLY', name: 'Eli Lilly', sector: 'Healthcare', marketCap: 720e9, changePercent: 1.45 },
+    { symbol: 'COST', name: 'Costco', sector: 'Consumer Defensive', marketCap: 310e9, changePercent: 2.15 },
+    { symbol: 'NFLX', name: 'Netflix', sector: 'Technology', marketCap: 295e9, changePercent: 0.58 },
+    { symbol: 'AMD', name: 'AMD', sector: 'Technology', marketCap: 235e9, changePercent: 4.64 },
+    { symbol: 'CRM', name: 'Salesforce', sector: 'Technology', marketCap: 270e9, changePercent: 1.38 },
+    { symbol: 'INTC', name: 'Intel', sector: 'Technology', marketCap: 108e9, changePercent: 11.42 },
+    { symbol: 'WMT', name: 'Walmart', sector: 'Consumer Defensive', marketCap: 520e9, changePercent: 1.15 },
+    { symbol: 'BAC', name: 'Bank of America', sector: 'Financials', marketCap: 315e9, changePercent: 3.18 },
+    { symbol: 'DIS', name: 'Disney', sector: 'Communication', marketCap: 215e9, changePercent: 2.74 },
+    { symbol: 'CSCO', name: 'Cisco', sector: 'Technology', marketCap: 210e9, changePercent: 3.74 },
+    { symbol: 'PLTR', name: 'Palantir', sector: 'Technology', marketCap: 155e9, changePercent: -6.20 },
+    { symbol: 'UBER', name: 'Uber', sector: 'Technology', marketCap: 168e9, changePercent: 2.08 },
+    { symbol: 'GS', name: 'Goldman Sachs', sector: 'Financials', marketCap: 188e9, changePercent: 3.12 },
+    { symbol: 'MU', name: 'Micron', sector: 'Technology', marketCap: 105e9, changePercent: 7.72 },
+    { symbol: 'LRCX', name: 'Lam Research', sector: 'Technology', marketCap: 98e9, changePercent: 9.87 },
+    { symbol: 'AMAT', name: 'Applied Materials', sector: 'Technology', marketCap: 140e9, changePercent: 8.87 },
   ];
   return stocks;
 }
 
 function getMockStandouts(): StandoutStock[] {
+  // Perplexity Finance Standouts — April 8, 2026
   return [
-    { symbol: 'INTC', name: 'Intel Corporation', exchange: 'NASDAQ', price: 24.50, changePercent: 11.4, prevClose: 22.00, volume: 95_000_000, marketCap: 100e9, peRatio: 18.5, dividendYield: 1.2, explanation: 'Intel surged on reports of a potential partnership deal and positive analyst revisions.' },
-    { symbol: 'HD', name: 'The Home Depot', exchange: 'NYSE', price: 336.16, changePercent: 5.46, prevClose: 318.77, volume: 3_700_000, marketCap: 334.8e9, peRatio: 23.6, dividendYield: 2.75, explanation: 'Home Depot shares rallied as falling energy prices boosted consumer sentiment for home improvement spending.' },
-    { symbol: 'META', name: 'Meta Platforms', exchange: 'NASDAQ', price: 612.42, changePercent: 6.50, prevClose: 575.04, volume: 18_000_000, marketCap: 1500e9, peRatio: 28.3, dividendYield: 0.35, explanation: 'Meta surged on strong ad revenue expectations and optimism around AI monetization efforts.' },
-    { symbol: 'LRCX', name: 'Lam Research', exchange: 'NASDAQ', price: 78.50, changePercent: 9.87, prevClose: 71.44, volume: 4_200_000, marketCap: 95e9, peRatio: 25.1, dividendYield: 0.92, explanation: 'Lam Research jumped on semiconductor capex acceleration forecasts from multiple analysts.' },
+    { symbol: 'AMCR', name: 'Amcor plc', exchange: 'NYSE', price: 42.37, changePercent: 8.53, prevClose: 39.04, volume: 4_330_000, marketCap: 19.58e9, peRatio: 31.86, dividendYield: 6.08, explanation: 'AMCR surged alongside a broad market rally driven by the US-Iran ceasefire, sparking strong risk-on sentiment across global equities.' },
+    { symbol: 'SHW', name: 'The Sherwin-Williams Company', exchange: 'NYSE', price: 335.67, changePercent: 6.91, prevClose: 313.96, volume: 1_650_000, marketCap: 83.17e9, peRatio: 32.68, dividendYield: 0.94, explanation: 'Sherwin-Williams surged as oil prices crashed, boosting economically sensitive housing and construction-related stocks.' },
+    { symbol: 'PPG', name: 'PPG Industries, Inc.', exchange: 'NYSE', price: 110.47, changePercent: 8.05, prevClose: 102.24, volume: 2_570_000, marketCap: 24.69e9, peRatio: 15.96, dividendYield: 2.54, explanation: 'PPG Industries surged as a major acquisition in the building products sector sparked broad optimism for coatings and materials.' },
+    { symbol: 'HD', name: 'The Home Depot, Inc.', exchange: 'NYSE', price: 336.16, changePercent: 5.46, prevClose: 318.77, volume: 3_700_000, marketCap: 334.82e9, peRatio: 23.61, dividendYield: 2.75, explanation: 'Home Depot shares surged as the US-Iran ceasefire led to oil prices plummeting, sparking a rally in construction and home improvement stocks.' },
   ];
 }
 
 function getMockSectors(): SectorPerformance[] {
+  // Perplexity Finance — April 8, 2026
   return [
     { name: 'Technology', symbol: 'XLK', price: 141.69, changePercent: 3.10 },
-    { name: 'Energy', symbol: 'XLE', price: 58.05, changePercent: -3.51 },
+    { name: 'Energy', symbol: 'XLE', price: 58.05, changePercent: 3.51 },
     { name: 'Consumer Cyclical', symbol: 'XLY', price: 110.82, changePercent: 2.83 },
     { name: 'Consumer Defensive', symbol: 'XLP', price: 82.78, changePercent: 1.87 },
     { name: 'Communication', symbol: 'XLC', price: 113.81, changePercent: 1.78 },

@@ -1,4 +1,6 @@
+import { useState, useEffect } from 'react';
 import { useDashboard } from '../context/DashboardContext';
+import { isUsingDemoKey } from '../services/marketData';
 import type { Region } from '../types';
 
 interface SettingsPanelProps {
@@ -8,6 +10,15 @@ interface SettingsPanelProps {
 
 export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const { state, dispatch } = useDashboard();
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem('dgmf-fmp-api-key') || '');
+  const [keySaved, setKeySaved] = useState(false);
+
+  useEffect(() => {
+    if (keySaved) {
+      const t = setTimeout(() => setKeySaved(false), 2000);
+      return () => clearTimeout(t);
+    }
+  }, [keySaved]);
 
   if (!isOpen) return null;
 
@@ -164,6 +175,53 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                 </span>
               ))}
             </div>
+          </section>
+
+          {/* API Key */}
+          <section className="mb-6">
+            <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-3">
+              FMP API Key
+            </h3>
+            {isUsingDemoKey() && !apiKey && (
+              <p className="text-xs text-amber-400/80 mb-2">
+                Using demo key — data is limited. Get a free key (250 req/day) at{' '}
+                <a
+                  href="https://financialmodelingprep.com/developer/docs/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-amber-300"
+                >
+                  financialmodelingprep.com
+                </a>
+              </p>
+            )}
+            <div className="flex gap-2">
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Paste your FMP API key"
+                className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-xs placeholder:text-white/25 focus:outline-none focus:border-accent/50"
+              />
+              <button
+                onClick={() => {
+                  if (apiKey.trim()) {
+                    localStorage.setItem('dgmf-fmp-api-key', apiKey.trim());
+                  } else {
+                    localStorage.removeItem('dgmf-fmp-api-key');
+                  }
+                  setKeySaved(true);
+                  // Force a refresh so new key is used
+                  window.location.reload();
+                }}
+                className="px-3 py-2 rounded-lg bg-accent/20 text-accent border border-accent/30 text-xs font-medium hover:bg-accent/30 transition-colors"
+              >
+                {keySaved ? '✓' : 'Save'}
+              </button>
+            </div>
+            {apiKey && !isUsingDemoKey() && (
+              <p className="text-xs text-gain mt-2">Live data active ✓</p>
+            )}
           </section>
 
           {/* Reset */}
