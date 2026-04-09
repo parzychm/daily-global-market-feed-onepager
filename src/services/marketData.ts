@@ -52,29 +52,77 @@ async function fmpFetch<T>(path: string): Promise<T> {
 // ── Public API functions ──
 
 export async function fetchTickerData(symbols: string[]): Promise<TickerItem[]> {
+  // FMP demo key only works for a few symbols. Try live API first,
+  // then fall back to realistic mock data so the ticker always shows content.
   try {
-    const data = await fmpFetch<Array<{
-      symbol: string;
-      name: string;
-      price: number;
-      change: number;
-      changesPercentage: number;
-    }>>(`/quote/${symbols.join(',')}`);
-    return data.map((d) => ({
-      symbol: d.symbol,
-      name: d.name || d.symbol,
-      price: d.price,
-      change: d.change,
-      changePercent: d.changesPercentage,
-    }));
+    // Separate equity/ETF symbols from forex pairs
+    const fxSymbols = symbols.filter(s => /^[A-Z]{6}$/.test(s) && (s.endsWith('USD') || s.startsWith('USD') || s.endsWith('JPY') || s.endsWith('CNY') || s.endsWith('CHF')));
+    const equitySymbols = symbols.filter(s => !fxSymbols.includes(s));
+
+    const results: TickerItem[] = [];
+
+    // Fetch equities/ETFs
+    if (equitySymbols.length > 0) {
+      const data = await fmpFetch<Array<{
+        symbol: string;
+        name: string;
+        price: number;
+        change: number;
+        changesPercentage: number;
+      }>>(`/quote/${equitySymbols.join(',')}`);
+      if (Array.isArray(data)) {
+        results.push(...data.map((d) => ({
+          symbol: d.symbol,
+          name: d.name || d.symbol,
+          price: d.price,
+          change: d.change,
+          changePercent: d.changesPercentage,
+        })));
+      }
+    }
+
+    // Fetch forex pairs
+    if (fxSymbols.length > 0) {
+      for (const fx of fxSymbols) {
+        try {
+          const pair = `${fx.slice(0,3)}/${fx.slice(3)}`;
+          const fxData = await fmpFetch<Array<{
+            ticker: string;
+            bid: number;
+            changes: number;
+          }>>(`/fx/${pair}`);
+          if (Array.isArray(fxData) && fxData.length > 0) {
+            results.push({
+              symbol: fx,
+              name: pair,
+              price: fxData[0].bid,
+              change: fxData[0].changes,
+              changePercent: fxData[0].bid > 0 ? (fxData[0].changes / fxData[0].bid) * 100 : 0,
+            });
+          }
+        } catch { /* skip individual fx failures */ }
+      }
+    }
+
+    // If we got at least some results, merge with mock for missing symbols
+    if (results.length > 0) {
+      const fetched = new Set(results.map(r => r.symbol));
+      const missing = symbols.filter(s => !fetched.has(s));
+      if (missing.length > 0) {
+        const mocks = getMockTicker();
+        for (const sym of missing) {
+          const mock = mocks.find(m => m.symbol === sym);
+          if (mock) results.push(mock);
+        }
+      }
+      // Return in original symbol order
+      return symbols.map(s => results.find(r => r.symbol === s)!).filter(Boolean);
+    }
+
+    throw new Error('No data returned');
   } catch {
-    return symbols.map((s) => ({
-      symbol: s,
-      name: s,
-      price: 0,
-      change: 0,
-      changePercent: 0,
-    }));
+    // Full fallback to mock data
+    return getMockTicker().filter(m => symbols.includes(m.symbol));
   }
 }
 
@@ -310,6 +358,33 @@ function generateSparkline(price: number, changePct: number): number[] {
 }
 
 // ── Mock data for demo / fallback ──
+
+function getMockTicker(): TickerItem[] {
+  return [
+    // US
+    { symbol: 'SPY', name: 'S&P 500', price: 5823.75, change: 142.50, changePercent: 2.51 },
+    { symbol: 'QQQ', name: 'NASDAQ 100', price: 502.38, change: 14.12, changePercent: 2.89 },
+    { symbol: 'DIA', name: 'Dow Jones', price: 421.44, change: 11.67, changePercent: 2.85 },
+    { symbol: 'VIX', name: 'VIX', price: 21.04, change: -4.74, changePercent: -18.39 },
+    { symbol: 'EURUSD', name: 'EUR/USD', price: 1.0842, change: -0.0032, changePercent: -0.30 },
+    { symbol: 'GBPUSD', name: 'GBP/USD', price: 1.2735, change: 0.0018, changePercent: 0.14 },
+    { symbol: 'USDJPY', name: 'USD/JPY', price: 151.42, change: 0.38, changePercent: 0.25 },
+    { symbol: 'USDCNY', name: 'USD/CNY', price: 7.2480, change: -0.012, changePercent: -0.17 },
+    { symbol: 'GLD', name: 'Gold', price: 302.15, change: 2.40, changePercent: 0.80 },
+    { symbol: 'USO', name: 'Crude Oil', price: 72.40, change: -8.92, changePercent: -10.97 },
+    { symbol: 'TLT', name: 'US 20Y Bond', price: 92.35, change: 0.67, changePercent: 0.73 },
+    // EU
+    { symbol: 'EZU', name: 'Euro Stoxx', price: 52.80, change: 1.12, changePercent: 2.17 },
+    { symbol: 'EWG', name: 'DAX (Germany)', price: 34.65, change: 0.89, changePercent: 2.64 },
+    { symbol: 'EWQ', name: 'CAC 40 (France)', price: 38.20, change: 0.72, changePercent: 1.92 },
+    { symbol: 'EWU', name: 'FTSE (UK)', price: 36.45, change: 0.54, changePercent: 1.50 },
+    // ASIA
+    { symbol: 'EWJ', name: 'Nikkei (Japan)', price: 68.90, change: 1.34, changePercent: 1.98 },
+    { symbol: 'FXI', name: 'China Large Cap', price: 28.45, change: 0.42, changePercent: 1.50 },
+    { symbol: 'EWY', name: 'KOSPI (Korea)', price: 62.30, change: 1.85, changePercent: 3.06 },
+    { symbol: 'INDA', name: 'Nifty (India)', price: 51.20, change: 0.68, changePercent: 1.35 },
+  ];
+}
 
 function getMockNews(): NewsItem[] {
   return [
