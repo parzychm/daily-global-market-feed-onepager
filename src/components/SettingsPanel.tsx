@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useDashboard } from '../context/DashboardContext';
-import { isUsingDemoKey } from '../services/marketData';
+import { isUsingDemoKey, getApiUsage } from '../services/marketData';
 import type { Region } from '../types';
 
 interface SettingsPanelProps {
@@ -222,6 +222,31 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
             {apiKey && !isUsingDemoKey() && (
               <p className="text-xs text-gain mt-2">Live data active ✓</p>
             )}
+            {/* API Usage Meter */}
+            {!isUsingDemoKey() && (() => {
+              const { used, budget } = getApiUsage();
+              const pct = Math.min((used / budget) * 100, 100);
+              const color = pct > 90 ? 'bg-loss' : pct > 70 ? 'bg-amber-500' : 'bg-gain';
+              return (
+                <div className="mt-3">
+                  <div className="flex items-center justify-between text-[10px] text-white/40 mb-1">
+                    <span>API calls today</span>
+                    <span>{used} / {budget}</span>
+                  </div>
+                  <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${color}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  {pct > 90 && (
+                    <p className="text-[10px] text-loss mt-1">
+                      Approaching daily limit — data will fall back to cache/mock when exhausted.
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
           </section>
 
           {/* Reset */}

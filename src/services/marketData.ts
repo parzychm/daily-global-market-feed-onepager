@@ -12,9 +12,35 @@ import type {
   PredictionMarket,
 } from '../types';
 
-// ── Cache layer ──
+// ── Cache layer with per-endpoint TTLs ──
+//
+// Budget: 250 FMP calls/day with 5-min quote refresh.
+// Strategy:
+//   - Batch ALL /quote/ symbols (ticker+watchlist+bonds) into ONE call → ~192/day
+//   - Sectors: 60-min TTL → ~16/day
+//   - News: 60-min TTL → ~16/day
+//   - Heatmap, Standouts, Movers: 4-hour TTL → ~4-12/day
+//   - FX pairs: mock data (no FMP call)
+//   - Crypto: CoinGecko (free, not FMP)
+//   Total: ~240/day ✓
 
 const cache = new Map<string, { data: unknown; ts: number }>();
+
+// TTLs by endpoint pattern — keeps slow-changing data cached longer
+const ENDPOINT_TTLS: [RegExp, number][] = [
+  [/\/sector-performance/, 60 * 60_000],         // 60 min
+  [/\/stock_news/, 60 * 60_000],                 // 60 min
+  [/\/stock-screener/, 4 * 60 * 60_000],         // 4 hours
+  [/\/stock_market\//, 4 * 60 * 60_000],         // 4 hours (gainers/losers/actives)
+];
+const DEFAULT_CACHE_TTL = 60_000; // 1 min fallback
+
+function getEndpointTtl(path: string): number {
+  for (const [re, ttl] of ENDPOINT_TTLS) {
+    if (re.test(path)) return ttl;
+  }
+  return DEFAULT_CACHE_TTL;
+}
 
 function getCached<T>(key: string, ttlMs: number): T | null {
   const entry = cache.get(key);
@@ -26,12 +52,49 @@ function setCache(key: string, data: unknown) {
   cache.set(key, { data, ts: Date.now() });
 }
 
+// ── API call budget tracker (persisted in localStorage) ──
+
+const API_DAILY_BUDGET = 250;
+let _apiCallCount = 0;
+let _apiCallDate = '';
+
+function initApiCounter() {
+  try {
+    const stored = localStorage.getItem('dgmf-api-usage');
+    if (stored) {
+      const { count, date } = JSON.parse(stored);
+      const today = new Date().toISOString().split('T')[0];
+      if (date === today) {
+        _apiCallCount = count;
+        _apiCallDate = date;
+        return;
+      }
+    }
+  } catch { /* ignore */ }
+  _apiCallDate = new Date().toISOString().split('T')[0];
+  _apiCallCount = 0;
+}
+initApiCounter();
+
+function trackApiCall() {
+  const today = new Date().toISOString().split('T')[0];
+  if (today !== _apiCallDate) { _apiCallCount = 0; _apiCallDate = today; }
+  _apiCallCount++;
+  try {
+    localStorage.setItem('dgmf-api-usage', JSON.stringify({ count: _apiCallCount, date: _apiCallDate }));
+  } catch { /* ignore */ }
+}
+
+export function getApiUsage(): { used: number; budget: number } {
+  initApiCounter();
+  return { used: _apiCallCount, budget: API_DAILY_BUDGET };
+}
+
 // ── FMP (Financial Modeling Prep) fetcher ──
 
 const FMP_BASE = 'https://financialmodelingprep.com/api/v3';
 
 function getFmpKey(): string {
-  // Priority: localStorage > env var > demo
   try {
     const stored = localStorage.getItem('dgmf-fmp-api-key');
     if (stored && stored.trim()) return stored.trim();
@@ -47,14 +110,21 @@ async function fmpFetch<T>(path: string): Promise<T> {
   const key = getFmpKey();
   const sep = path.includes('?') ? '&' : '?';
   const url = `${FMP_BASE}${path}${sep}apikey=${key}`;
-  const cached = getCached<T>(url, 60_000);
+  const ttl = getEndpointTtl(path);
+  const cached = getCached<T>(url, ttl);
   if (cached) return cached;
+
+  // Budget guard
+  if (_apiCallCount >= API_DAILY_BUDGET) {
+    throw new Error('FMP daily API budget (250) exhausted — using cached/mock data');
+  }
 
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`FMP ${res.status}`);
     const data = await res.json();
     setCache(url, data);
+    trackApiCall();
     return data as T;
   } catch (err) {
     console.warn(`FMP fetch failed for ${path}:`, err);
@@ -62,79 +132,121 @@ async function fmpFetch<T>(path: string): Promise<T> {
   }
 }
 
-// ── Public API functions ──
+// ── Quote Pool — batches ALL /quote/ requests into ONE FMP call ──
+//
+// Ticker (7 equities) + Watchlist (10) + Bonds (6) = ~23 symbols → 1 call/5 min
+// instead of 3 separate calls. Saves ~384 calls/day.
 
-export async function fetchTickerData(symbols: string[]): Promise<TickerItem[]> {
-  // FMP demo key only works for a few symbols. Try live API first,
-  // then fall back to realistic mock data so the ticker always shows content.
-  try {
-    // Separate equity/ETF symbols from forex pairs
-    const fxSymbols = symbols.filter(s => /^[A-Z]{6}$/.test(s) && (s.endsWith('USD') || s.startsWith('USD') || s.endsWith('JPY') || s.endsWith('CNY') || s.endsWith('CHF')));
-    const equitySymbols = symbols.filter(s => !fxSymbols.includes(s));
+interface QuoteData {
+  symbol: string;
+  name: string;
+  price: number;
+  change: number;
+  changePercent: number;
+}
 
-    const results: TickerItem[] = [];
+const _quoteRegistry = new Set<string>();
+const _quoteCache = new Map<string, QuoteData>();
+let _quoteCacheTs = 0;
+let _quotePromise: Promise<void> | null = null;
+const QUOTE_TTL = 290_000; // 4:50 — just under 5 min to allow timely refresh
 
-    // Fetch equities/ETFs
-    if (equitySymbols.length > 0) {
-      const data = await fmpFetch<Array<{
+function isFxSymbol(s: string): boolean {
+  return /^[A-Z]{6}$/.test(s) &&
+    (s.endsWith('USD') || s.startsWith('USD') || s.endsWith('JPY') || s.endsWith('CNY') || s.endsWith('CHF'));
+}
+
+/** Register symbols so they're included in the next batched /quote/ call. */
+function registerQuoteSymbols(symbols: string[]) {
+  symbols.filter(s => !isFxSymbol(s)).forEach(s => _quoteRegistry.add(s));
+}
+
+/** Refresh the shared quote pool. De-dupes concurrent calls via promise lock. */
+async function refreshQuotePool(): Promise<void> {
+  if (_quotePromise) return _quotePromise;
+
+  const equities = [..._quoteRegistry];
+  if (equities.length === 0) return;
+
+  // Skip if cache is fresh AND all registered symbols are present
+  const allPresent = equities.every(s => _quoteCache.has(s));
+  if (allPresent && Date.now() - _quoteCacheTs < QUOTE_TTL) return;
+
+  _quotePromise = (async () => {
+    try {
+      if (_apiCallCount >= API_DAILY_BUDGET) throw new Error('Budget exhausted');
+
+      const key = getFmpKey();
+      const url = `${FMP_BASE}/quote/${equities.join(',')}?apikey=${key}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`FMP ${res.status}`);
+      const data: Array<{
         symbol: string;
         name: string;
         price: number;
         change: number;
         changesPercentage: number;
-      }>>(`/quote/${equitySymbols.join(',')}`);
+      }> = await res.json();
+
       if (Array.isArray(data)) {
-        results.push(...data.map((d) => ({
-          symbol: d.symbol,
-          name: d.name || d.symbol,
-          price: d.price,
-          change: d.change,
-          changePercent: d.changesPercentage,
-        })));
+        data.forEach(d => {
+          _quoteCache.set(d.symbol, {
+            symbol: d.symbol,
+            name: d.name || d.symbol,
+            price: d.price,
+            change: d.change,
+            changePercent: d.changesPercentage,
+          });
+        });
+        _quoteCacheTs = Date.now();
+        trackApiCall(); // Just 1 call for ALL symbols!
       }
+    } catch (err) {
+      console.warn('Quote pool refresh failed:', err);
+    } finally {
+      _quotePromise = null;
     }
+  })();
 
-    // Fetch forex pairs
-    if (fxSymbols.length > 0) {
-      for (const fx of fxSymbols) {
-        try {
-          const pair = `${fx.slice(0,3)}/${fx.slice(3)}`;
-          const fxData = await fmpFetch<Array<{
-            ticker: string;
-            bid: number;
-            changes: number;
-          }>>(`/fx/${pair}`);
-          if (Array.isArray(fxData) && fxData.length > 0) {
-            results.push({
-              symbol: fx,
-              name: pair,
-              price: fxData[0].bid,
-              change: fxData[0].changes,
-              changePercent: fxData[0].bid > 0 ? (fxData[0].changes / fxData[0].bid) * 100 : 0,
-            });
-          }
-        } catch { /* skip individual fx failures */ }
-      }
-    }
+  return _quotePromise;
+}
 
-    // If we got at least some results, merge with mock for missing symbols
-    if (results.length > 0) {
-      const fetched = new Set(results.map(r => r.symbol));
-      const missing = symbols.filter(s => !fetched.has(s));
-      if (missing.length > 0) {
-        const mocks = getMockTicker();
-        for (const sym of missing) {
+function getPoolQuote(symbol: string): QuoteData | null {
+  return _quoteCache.get(symbol) || null;
+}
+
+// ── Public API functions ──
+
+export async function fetchTickerData(symbols: string[]): Promise<TickerItem[]> {
+  // Register equity symbols for batched fetching (FX uses mock — saves API calls)
+  registerQuoteSymbols(symbols);
+
+  try {
+    await refreshQuotePool();
+
+    const results: TickerItem[] = [];
+    const mocks = getMockTicker();
+
+    for (const sym of symbols) {
+      if (isFxSymbol(sym)) {
+        // FX pairs use mock data — barely moves in 5 min, saves 1-4 calls/cycle
+        const mock = mocks.find(m => m.symbol === sym);
+        if (mock) results.push(mock);
+      } else {
+        const quote = getPoolQuote(sym);
+        if (quote) {
+          results.push(quote);
+        } else {
+          // Fallback to mock for symbols the API didn't return
           const mock = mocks.find(m => m.symbol === sym);
           if (mock) results.push(mock);
         }
       }
-      // Return in original symbol order
-      return symbols.map(s => results.find(r => r.symbol === s)!).filter(Boolean);
     }
 
-    throw new Error('No data returned');
+    if (results.length > 0) return results;
+    throw new Error('No data');
   } catch {
-    // Full fallback to mock data
     return getMockTicker().filter(m => symbols.includes(m.symbol));
   }
 }
@@ -274,22 +386,34 @@ export async function fetchGainersLosers(): Promise<{
 
 export async function fetchWatchlistQuotes(symbols: string[]): Promise<WatchlistItem[]> {
   if (symbols.length === 0) return [];
+
+  // Use batched quote pool
+  registerQuoteSymbols(symbols);
+
   try {
-    const data = await fmpFetch<Array<{
-      symbol: string;
-      name: string;
-      price: number;
-      change: number;
-      changesPercentage: number;
-    }>>(`/quote/${symbols.join(',')}`);
-    return data.map((d) => ({
-      symbol: d.symbol,
-      name: d.name || d.symbol,
-      price: d.price,
-      change: d.change,
-      changePercent: d.changesPercentage,
-      sparkline: generateSparkline(d.price, d.changesPercentage),
-    }));
+    await refreshQuotePool();
+
+    return symbols.map((sym) => {
+      const quote = getPoolQuote(sym);
+      if (quote) {
+        return {
+          symbol: quote.symbol,
+          name: quote.name,
+          price: quote.price,
+          change: quote.change,
+          changePercent: quote.changePercent,
+          sparkline: generateSparkline(quote.price, quote.changePercent),
+        };
+      }
+      return {
+        symbol: sym,
+        name: sym,
+        price: 0,
+        change: 0,
+        changePercent: 0,
+        sparkline: [],
+      };
+    });
   } catch {
     return symbols.map((s) => ({
       symbol: s,
@@ -331,20 +455,30 @@ export async function fetchCrypto(): Promise<CryptoAsset[]> {
 }
 
 export async function fetchBondETFs(): Promise<BondETF[]> {
+  const bondSymbols = ['TIP', 'GOVT', 'MUB', 'CWB', 'HYG', 'LQD'];
+  const names: Record<string, string> = {
+    TIP: 'T.I.P.S.', GOVT: 'U.S. Treasuries', MUB: 'Municipals',
+    CWB: 'Convertibles', HYG: 'High Yield', LQD: 'High Grade',
+  };
+
+  // Use batched quote pool
+  registerQuoteSymbols(bondSymbols);
+
   try {
-    const symbols = 'TIP,GOVT,MUB,CWB,HYG,LQD';
-    const data = await fmpFetch<Array<{
-      symbol: string;
-      name: string;
-      price: number;
-      changesPercentage: number;
-    }>>(`/quote/${symbols}`);
-    return data.map((d) => ({
-      symbol: d.symbol,
-      name: d.name || d.symbol,
-      price: d.price,
-      changePercent: d.changesPercentage,
-    }));
+    await refreshQuotePool();
+
+    return bondSymbols.map(sym => {
+      const quote = getPoolQuote(sym);
+      if (quote) {
+        return {
+          symbol: sym,
+          name: names[sym] || quote.name,
+          price: quote.price,
+          changePercent: quote.changePercent,
+        };
+      }
+      return { symbol: sym, name: names[sym] || sym, price: 0, changePercent: 0 };
+    });
   } catch {
     return getMockBonds();
   }
