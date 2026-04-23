@@ -89,9 +89,11 @@ function TvChart({ tvSymbol }: { tvSymbol: string }) {
     wrapper.className = 'tradingview-widget-container';
     wrapper.style.cssText = 'width:100%;height:100%;';
 
-    const inner = document.createElement('div');
-    inner.style.cssText = 'width:100%;height:100%;';
-    wrapper.appendChild(inner);
+    // TradingView requires a div with this specific class to inject the iframe into
+    const widgetDiv = document.createElement('div');
+    widgetDiv.className = 'tradingview-widget-container__widget';
+    widgetDiv.style.cssText = 'width:100%;height:calc(100% - 32px);';
+    wrapper.appendChild(widgetDiv);
 
     const script = document.createElement('script');
     script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
@@ -101,14 +103,14 @@ function TvChart({ tvSymbol }: { tvSymbol: string }) {
       autosize: true,
       symbol: tvSymbol,
       interval: 'D',
-      timezone: 'Etc/UTC',
+      timezone: 'Europe/Warsaw',
       theme: 'dark',
       style: '1',
       locale: 'en',
       allow_symbol_change: false,
       calendar: false,
       support_host: 'https://www.tradingview.com',
-      hide_side_toolbar: true,
+      hide_side_toolbar: false,
       withdateranges: true,
       hide_volume: false,
       isTransparent: true,
@@ -137,6 +139,11 @@ function TvTimeline({ tvSymbol }: { tvSymbol: string }) {
     wrapper.className = 'tradingview-widget-container';
     wrapper.style.cssText = 'width:100%;height:100%;';
 
+    const widgetDiv = document.createElement('div');
+    widgetDiv.className = 'tradingview-widget-container__widget';
+    widgetDiv.style.cssText = 'width:100%;height:100%;';
+    wrapper.appendChild(widgetDiv);
+
     const script = document.createElement('script');
     script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-timeline.js';
     script.type = 'text/javascript';
@@ -150,6 +157,49 @@ function TvTimeline({ tvSymbol }: { tvSymbol: string }) {
       height: '100%',
       colorTheme: 'dark',
       locale: 'en',
+    });
+    wrapper.appendChild(script);
+    container.appendChild(wrapper);
+
+    return () => { container.innerHTML = ''; };
+  }, [tvSymbol]);
+
+  return <div ref={containerRef} className="w-full h-full" />;
+}
+
+// ── TradingView Technical Analysis ────────────────────────────────────────────
+// Shows RSI, MACD, Moving Average buy/sell signals from TradingView's TA engine
+
+function TvTechAnalysis({ tvSymbol }: { tvSymbol: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const container = containerRef.current;
+    container.innerHTML = '';
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'tradingview-widget-container';
+    wrapper.style.cssText = 'width:100%;height:100%;';
+
+    const widgetDiv = document.createElement('div');
+    widgetDiv.className = 'tradingview-widget-container__widget';
+    widgetDiv.style.cssText = 'width:100%;height:100%;';
+    wrapper.appendChild(widgetDiv);
+
+    const script = document.createElement('script');
+    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-technical-analysis.js';
+    script.type = 'text/javascript';
+    script.async = true;
+    script.textContent = JSON.stringify({
+      interval: '1D',
+      width: '100%',
+      isTransparent: true,
+      height: '100%',
+      symbol: tvSymbol,
+      showIntervalTabs: true,
+      locale: 'en',
+      colorTheme: 'dark',
     });
     wrapper.appendChild(script);
     container.appendChild(wrapper);
@@ -420,7 +470,7 @@ export default function XtbWatchlistTab() {
           </div>
         </div>
 
-        {/* ── Right: Chart + News ── */}
+        {/* ── Right: Analysis + Chart + News ── */}
         <div className="col-span-12 lg:col-span-8 flex flex-col gap-3">
 
           {/* Selected stock header */}
@@ -444,36 +494,60 @@ export default function XtbWatchlistTab() {
             )}
           </div>
 
-          {/* TradingView Chart */}
-          <div className="bg-surface-800 rounded-xl border border-white/5 overflow-hidden" style={{ height: '370px' }}>
-            <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
-              <h3 className="text-xs font-semibold text-white/70 flex items-center gap-2">
-                <span>📈</span> Chart Analysis
-              </h3>
-              <span className="text-xs text-accent/60 font-mono">{selected.tv}</span>
+          {/* Row: Technical Analysis + Chart (side by side) */}
+          <div className="grid grid-cols-12 gap-3" style={{ height: '360px' }}>
+
+            {/* Technical Analysis — RSI/MACD/Moving Averages buy/sell signals */}
+            <div className="col-span-12 md:col-span-5 bg-surface-800 rounded-xl border border-white/5 flex flex-col overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5 flex-shrink-0">
+                <h3 className="text-xs font-semibold text-white/70 flex items-center gap-2">
+                  <span>📊</span> Technical Analysis
+                </h3>
+                <span className="text-[10px] text-white/25">RSI · MACD · MAs</span>
+              </div>
+              <div className="flex-1 min-h-0">
+                <TvTechAnalysis key={`ta-${selected.tv}`} tvSymbol={selected.tv} />
+              </div>
             </div>
-            <div className="h-[calc(100%-40px)]">
-              <TvChart key={selected.tv} tvSymbol={selected.tv} />
+
+            {/* Interactive Chart */}
+            <div className="col-span-12 md:col-span-7 bg-surface-800 rounded-xl border border-white/5 flex flex-col overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5 flex-shrink-0">
+                <h3 className="text-xs font-semibold text-white/70 flex items-center gap-2">
+                  <span>📈</span> Chart
+                </h3>
+                <a
+                  href={`https://www.tradingview.com/symbols/${selected.tv.replace(':', '/')}/`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[10px] text-accent/50 hover:text-accent/80 transition-colors"
+                >
+                  Open in TradingView ↗
+                </a>
+              </div>
+              <div className="flex-1 min-h-0">
+                <TvChart key={`chart-${selected.tv}`} tvSymbol={selected.tv} />
+              </div>
             </div>
           </div>
 
-          {/* TradingView Timeline (news) */}
-          <div className="bg-surface-800 rounded-xl border border-white/5 overflow-hidden flex-1" style={{ minHeight: '270px' }}>
-            <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
+          {/* Latest News */}
+          <div className="bg-surface-800 rounded-xl border border-white/5 flex flex-col overflow-hidden" style={{ height: '300px' }}>
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5 flex-shrink-0">
               <h3 className="text-xs font-semibold text-white/70 flex items-center gap-2">
                 <span>📰</span> Latest News — {selected.symbol}
               </h3>
               <a
-                href={`https://www.tradingview.com/symbols/${selected.tv.replace(':', '-')}/`}
+                href={`https://www.tradingview.com/news/`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[10px] text-accent/50 hover:text-accent/80 transition-colors"
               >
-                View on TradingView ↗
+                TradingView News ↗
               </a>
             </div>
-            <div className="h-[calc(100%-40px)]">
-              <TvTimeline key={selected.tv} tvSymbol={selected.tv} />
+            <div className="flex-1 min-h-0">
+              <TvTimeline key={`news-${selected.tv}`} tvSymbol={selected.tv} />
             </div>
           </div>
 
