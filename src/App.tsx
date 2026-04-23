@@ -16,6 +16,7 @@ import PredictionsWidget from './components/PredictionsWidget';
 import CryptoWidget from './components/CryptoWidget';
 import FixedIncomeWidget from './components/FixedIncomeWidget';
 import type { WidgetId } from './types';
+import XtbWatchlistTab from './components/XtbWatchlistTab';
 
 const WIDGET_COMPONENTS: Record<WidgetId, React.ComponentType> = {
   ticker: TickerBar,
@@ -54,6 +55,7 @@ const GRID_LAYOUT: { id: WidgetId; colSpan: string; rowSpan?: string }[] = [
 export default function App() {
   const { state } = useDashboard();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'market' | 'xtb'>('market');
 
   const enabledWidgets = useMemo(() => {
     const enabled = new Set(
@@ -69,31 +71,58 @@ export default function App() {
       <Header onOpenSettings={() => setSettingsOpen(true)} />
 
       <main className="max-w-[1600px] mx-auto px-4 py-4">
-        <div className="grid grid-cols-12 gap-4">
-          {enabledWidgets.map(({ id, colSpan }) => {
-            const Component = WIDGET_COMPONENTS[id];
-            if (!Component) return null;
+        {/* ── Tab navigation ─────────────────────────────────────────── */}
+        <div className="flex items-end gap-0 mb-5 border-b border-white/10">
+          {([
+            { id: 'market', label: '🌐 Market Review' },
+            { id: 'xtb',    label: '⭐ XTB Watchlist' },
+          ] as const).map(({ id, label }) => (
+            <button
+              key={id}
+              onClick={() => setActiveTab(id)}
+              className={`relative px-5 py-2.5 text-sm font-medium transition-colors ${
+                activeTab === id
+                  ? 'text-white'
+                  : 'text-white/40 hover:text-white/70'
+              }`}
+            >
+              {label}
+              {activeTab === id && (
+                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent rounded-t" />
+              )}
+            </button>
+          ))}
+        </div>
 
-            // Ticker bar is a special full-width thin widget
-            if (id === 'ticker') {
+        {/* ── Market Review tab ──────────────────────────────────────── */}
+        {activeTab === 'market' && (
+          <div className="grid grid-cols-12 gap-4">
+            {enabledWidgets.map(({ id, colSpan }) => {
+              const Component = WIDGET_COMPONENTS[id];
+              if (!Component) return null;
+
+              if (id === 'ticker') {
+                return (
+                  <div key={id} className={`${colSpan} h-14`}>
+                    <Component />
+                  </div>
+                );
+              }
+
               return (
-                <div key={id} className={`${colSpan} h-14`}>
+                <div
+                  key={id}
+                  className={`${colSpan} min-h-[320px]`}
+                >
                   <Component />
                 </div>
               );
-            }
+            })}
+          </div>
+        )}
 
-            // All other widgets get a standard min-height
-            return (
-              <div
-                key={id}
-                className={`${colSpan} min-h-[320px]`}
-              >
-                <Component />
-              </div>
-            );
-          })}
-        </div>
+        {/* ── XTB Watchlist tab ──────────────────────────────────────── */}
+        {activeTab === 'xtb' && <XtbWatchlistTab />}
 
         {/* Footer */}
         <footer className="mt-8 pb-6 text-center">
