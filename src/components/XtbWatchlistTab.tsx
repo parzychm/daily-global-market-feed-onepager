@@ -296,7 +296,7 @@ export default function XtbWatchlistTab() {
             }
             className="text-xs bg-white/5 border border-white/10 text-white/60 rounded-lg px-2 py-1.5 cursor-pointer focus:outline-none focus:border-accent/40 hover:bg-white/10 transition-colors"
           >
-            {REFRESH_OPTIONS.map((opt) => (
+            {REFRESH_OPTIONS.map((opt: { value: string; label: string }) => (
               <option key={opt.value} value={opt.value} className="bg-neutral-900 text-white">
                 {opt.label}
               </option>
