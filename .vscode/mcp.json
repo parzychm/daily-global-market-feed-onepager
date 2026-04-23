@@ -1,0 +1,11 @@
+{
+	"servers": {
+		"tradingview": {
+			"type": "stdio",
+			"command": "node",
+			"args": [
+				"/Users/parzych.m/Github/tradingview-mcp/src/server.js"
+			]
+		}
+	}
+}

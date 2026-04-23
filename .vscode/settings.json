@@ -1,0 +1,10 @@
+{
+    "chat.mcp.serverSampling": {
+        "daily-global-market-feed-onepager/.vscode/mcp.json: tradingview": {
+            "allowedModels": [
+                "copilot/auto",
+                "copilotcli/claude-sonnet-4.6"
+            ]
+        }
+    }
+}
